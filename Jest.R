@@ -62,22 +62,98 @@ jest.tokens %>%
 
 jest.sentiment <- jest.tokens %>%
   inner_join(get_sentiments("bing")) %>%
-  count(word, index=line %/% 80, sentiment) %>%
+  mutate(method = "Bing et al.") %>%
+  count(word, index=line %/% 100, sentiment) %>%
   spread(sentiment, n, fill=0) %>%
   mutate(sentiment=positive - negative)
 
 ggplot(jest.sentiment, aes(index, sentiment)) +
-  geom_col() +
-  theme_bw()
+  geom_col() 
+
 
 library(cowplot)
-plotbase <- ggplot(jest.sentiment, aes(x=sentiment, y=index, height=sentiment)) 
-plot_grid(plotbase + geom_ridgeline(),
-          plotbase + geom_ridgeline(min_height=-400))
+ggplot(jest.sentiment, aes(x=sentiment, y=index, height=sentiment, group=index)) +
+  geom_joy(stat="identity", min_height=-40)
 
+## COMPARE DIFFERENT SENTIMENT DICTIONARIES
 
+jest.afinn <- jest.tokens %>%
+  inner_join(get_sentiments("afinn")) %>%
+  group_by(index = line %/% 100) %>%
+  summarise(sentiment = sum(score)) %>%
+  mutate(method = "AFINN")
 
-  
+bing.nrc <- bind_rows(jest.tokens %>%
+                        inner_join(get_sentiments("bing")) %>%
+                        mutate(method="Bing et al."),
+                      jest.tokens %>%
+                        inner_join(get_sentiments("nrc") %>%
+                                     filter(sentiment %in% c("positive",
+                                                             "negative"))) %>%
+                        mutate(method="NRC")) %>%
+  count(method, index = line %/% 100, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+bind_rows(jest.afinn,
+          bing.nrc) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+
+jest.nrc <- jest.tokens %>%
+  inner_join(get_sentiments("nrc") %>%
+               filter(sentiment %in% c("positive",
+                                       "negative"))) %>%
+  mutate(method="NRC") %>%
+  count(method, index = line %/% 100, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+svg("sentiment.svg", height = 6, width = 9.7)
+ggplot(jest.nrc, aes(index, sentiment)) +
+  geom_col(fill="darkorchid") +
+  theme_bw()
+dev.off()
+
+bing.counts <- jest.tokens %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort=TRUE) %>%
+  ungroup()
+
+nrc.counts <- jest.tokens %>%
+  inner_join(get_sentiments("nrc")) %>%
+  count(word, sentiment, sort=TRUE) %>%
+  ungroup()
+
+contributions <- bing.counts %>%
+  group_by(sentiment) %>%
+  top_n(15) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) 
+
+svg("contribution.svg", height = 8, width = 8)
+ggplot(contributions, aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  coord_flip() +
+  theme_bw()
+dev.off()
+library(reshape2)
+library(wordcloud)
+
+jest.tokens %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, colors = "#D98484", max.words = 100))
+
+png("wordcloud.png", height = 640, width = 640)
+jest.tokens %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors= c("#D98484", "#539DA6"),
+                   max.words = 100)
+dev.off()
 ##########################################################
 ### --- Part-of-Speech tagging and syntactic parsing with R
 ##########################################################
